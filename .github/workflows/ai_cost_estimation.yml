@@ -20,12 +20,15 @@ jobs:
           terraform_version: 1.6.0
 
       - name: Terraform Init
+        working-directory: ./project
         run: terraform init
 
       - name: Terraform Plan
+        working-directory: ./project
         run: terraform plan -out=tfplan.binary
 
       - name: Convert Plan to JSON
+        working-directory: ./project
         id: convert
         run: |
           terraform show -json tfplan.binary > tfplan.json
@@ -62,5 +65,6 @@ jobs:
             });
 
       - name: Terraform Apply
+        working-directory: ./project
         if: github.ref == 'refs/heads/main'
         run: terraform apply -auto-approve tfplan.binary
