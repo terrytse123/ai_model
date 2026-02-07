@@ -1,0 +1,66 @@
+name: Terraform Deploy with AI Cost Estimation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.6.0
+
+      - name: Terraform Init
+        run: terraform init
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan.binary
+
+      - name: Convert Plan to JSON
+        id: convert
+        run: |
+          terraform show -json tfplan.binary > tfplan.json
+          PLAN_JSON=$(jq -Rs . < tfplan.json)
+          echo "tfplan_json=$PLAN_JSON" >> $GITHUB_OUTPUT
+
+      - name: Estimate Costs with AI
+        id: ai_cost
+        uses: actions/ai-inference@v1
+        with:
+          model: mistral-ai/gpt-4
+          system-prompt: |
+            You are an Azure cost estimation assistant.
+            Given a Terraform plan JSON, identify resources, map them to Azure SKUs,
+            and estimate monthly costs using public Azure pricing.
+            Summarize the total and highlight the most expensive components.
+          user-prompt: |
+            Here is the Terraform plan JSON:
+            ```json
+            ${{ steps.convert.outputs.tfplan_json }}
+            ```
+
+      - name: Comment Cost Estimate on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const costEstimate = `${{ steps.ai_cost.outputs.result }}`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `### 💰 AI Cost Estimate\n\n${costEstimate}`
+            });
+
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main'
+        run: terraform apply -auto-approve tfplan.binary
