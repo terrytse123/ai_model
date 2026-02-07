@@ -19,3 +19,4 @@ resource "azurerm_storage_account" "example" {
     environment = "staging"
   }
 }
+
