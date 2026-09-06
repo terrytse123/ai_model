@@ -6,7 +6,7 @@ on:
     paths:
       - "SKILL.md"     # only run when SKILL.md changes
 permissions:
-  contents: read
+  contents: write
   copilot-requests: write  # Crucial for Copilot API access
   
 jobs:
