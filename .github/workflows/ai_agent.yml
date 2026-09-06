@@ -21,7 +21,7 @@ jobs:
 
       - name: Install Copilot CLI
         run: |
-          npm install -g @github/copilot-cli
+          npm install -g @github/copilot
 
       - name: Run Copilot on SKILL.md
         env:
