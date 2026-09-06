@@ -1,0 +1,36 @@
+name: Copilot Skill Check
+
+on:
+  workflow_dispatch:   # manual trigger
+  push:
+    paths:
+      - "SKILL.md"     # only run when SKILL.md changes
+
+jobs:
+  copilot-run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install Copilot CLI
+        run: |
+          npm install -g @github/copilot-cli
+
+      - name: Run Copilot on SKILL.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          copilot run SKILL.md --output result.json
+
+      - name: Upload Copilot results
+        uses: actions/upload-artifact@v4
+        with:
+          name: copilot-results
+          path: result.json
