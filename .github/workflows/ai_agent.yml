@@ -30,4 +30,4 @@ jobs:
         run: |
           copilot --yolo -p "Review the changes in the latest commit and check for potential security flaws. Provide remediation step by output to Workflow Summary Page. Raise PR and let user review"
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.TERRY_PAT }}
