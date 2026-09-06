@@ -28,6 +28,6 @@ jobs:
 
       - name: Run Copilot Agent Task
         run: |
-          copilot --yolo -p "Review the changes in the latest commit and check for potential security flaws."
+          copilot --yolo -p "Review the changes in the latest commit and check for potential security flaws. Provide remediation step in Summary."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
