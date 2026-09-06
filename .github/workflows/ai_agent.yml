@@ -5,7 +5,10 @@ on:
   push:
     paths:
       - "SKILL.md"     # only run when SKILL.md changes
-
+permissions:
+  contents: read
+  copilot-requests: write  # Crucial for Copilot API access
+  
 jobs:
   copilot-run:
     runs-on: ubuntu-latest
@@ -23,14 +26,8 @@ jobs:
         run: |
           npm install -g @github/copilot
 
-      - name: Run Copilot on SKILL.md
+      - name: Run Copilot Agent Task
+        run: |
+          copilot --yolo -p "Review the changes in the latest commit and check for potential security flaws."
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          copilot run SKILL.md --output result.json
-
-      - name: Upload Copilot results
-        uses: actions/upload-artifact@v4
-        with:
-          name: copilot-results
-          path: result.json
