@@ -63,6 +63,12 @@ def get_history_for_days(history: list[dict[str, Any]], days: int) -> list[dict[
     return recent
 
 
+def get_history_for_url(history: list[dict[str, Any]], url: str) -> list[dict[str, Any]]:
+    if not url:
+        return []
+    return [item for item in history if str(item.get("url", "")) == str(url)]
+
+
 @app.get("/health")
 def health():
     return jsonify({"status": "ok"})
@@ -223,20 +229,23 @@ def index():
 @app.get("/status")
 def status():
     history = MONITOR_STATE.get("history", [])
+    selected_url = MONITOR_STATE.get("url", "")
+    item_history = get_history_for_url(history, selected_url)
+
     return jsonify({
-        "url": MONITOR_STATE["url"],
+        "url": selected_url,
         "interval": MONITOR_STATE["interval"],
         "running": MONITOR_STATE["running"],
         "status": MONITOR_STATE["status"],
         "last_price": str(MONITOR_STATE["last_price"]) if MONITOR_STATE["last_price"] is not None else None,
         "last_checked": MONITOR_STATE["last_checked"],
-        "history_30_count": len(get_history_for_days(history, 30)),
-        "history_60_count": len(get_history_for_days(history, 60)),
-        "history_90_count": len(get_history_for_days(history, 90)),
+        "history_30_count": len(get_history_for_days(item_history, 30)),
+        "history_60_count": len(get_history_for_days(item_history, 60)),
+        "history_90_count": len(get_history_for_days(item_history, 90)),
         "history_by_days": {
-            "30": get_history_for_days(history, 30),
-            "60": get_history_for_days(history, 60),
-            "90": get_history_for_days(history, 90),
+            "30": get_history_for_days(item_history, 30),
+            "60": get_history_for_days(item_history, 60),
+            "90": get_history_for_days(item_history, 90),
         },
     })
 
@@ -280,7 +289,7 @@ def run_monitor_loop(url: str, interval_seconds: int) -> None:
                     MONITOR_STATE["status"] = f"Current price: ${price}"
                 last_price = price
                 MONITOR_STATE["last_price"] = price
-                history.append({"checked_at": timestamp, "price": str(price)})
+                history.append({"url": url, "checked_at": timestamp, "price": str(price)})
                 history = history[-2000:]
                 MONITOR_STATE["history"] = history
                 save_history(history)

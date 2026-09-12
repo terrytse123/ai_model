@@ -54,3 +54,16 @@ def test_price_history_filters_by_days():
     assert len(recent_30) == 1
     assert len(recent_60) == 2
     assert len(recent_90) == 2
+
+
+def test_item_history_filters_by_url():
+    from amazon_price_monitor import get_history_for_url
+
+    history = [
+        {"url": "https://a.example/one", "checked_at": "2026-09-01 00:00:00", "price": "10.00"},
+        {"url": "https://a.example/two", "checked_at": "2026-09-02 00:00:00", "price": "15.00"},
+        {"url": "https://a.example/one", "checked_at": "2026-09-03 00:00:00", "price": "12.00"},
+    ]
+
+    assert len(get_history_for_url(history, "https://a.example/one")) == 2
+    assert len(get_history_for_url(history, "https://a.example/two")) == 1
