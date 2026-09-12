@@ -16,6 +16,7 @@ app = Flask(__name__)
 HISTORY_FILE = Path(__file__).with_name("price_history.json")
 MONITOR_STATE = {
     "url": "",
+    "product_name": "",
     "interval": 300,
     "running": False,
     "status": "idle",
@@ -69,6 +70,33 @@ def get_history_for_url(history: list[dict[str, Any]], url: str) -> list[dict[st
     return [item for item in history if str(item.get("url", "")) == str(url)]
 
 
+def extract_product_name(html: str) -> str:
+    soup = BeautifulSoup(html, "html.parser")
+    selectors = [
+        "#productTitle",
+        "h1" ,
+        "meta[property='og:title']",
+        "meta[name='twitter:title']",
+    ]
+    for selector in selectors:
+        if selector == "meta[property='og:title']":
+            node = soup.select_one(selector)
+            if node and node.get("content"):
+                return node["content"].strip()
+            continue
+        if selector == "meta[name='twitter:title']":
+            node = soup.select_one(selector)
+            if node and node.get("content"):
+                return node["content"].strip()
+            continue
+        node = soup.select_one(selector)
+        if node:
+            text = node.get_text(" ", strip=True)
+            if text:
+                return text
+    return "Amazon product"
+
+
 @app.get("/health")
 def health():
     return jsonify({"status": "ok"})
@@ -107,7 +135,11 @@ def index():
                 </form>
 
                 <div class="status" id="status-box">Idle. Paste a URL and start monitoring.</div>
-                <div class="tiny" id="meta-box"></div>
+
+                <div id="product-card" style="margin-top: 18px; background: #f3f4f6; border: 1px solid #dfe3e8; border-radius: 12px; padding: 14px 16px;">
+                    <div id="product-name" style="font-size: 18px; font-weight: 700; line-height: 1.4; color: #111827; word-break: break-word;">No product selected</div>
+                    <div id="product-url" style="margin-top: 6px; font-size: 12px; color: #6b7280; word-break: break-all;">URL will appear here</div>
+                </div>
 
                 <div style="margin-top: 18px;">
                     <div style="display: flex; gap: 8px; margin-bottom: 12px;">
@@ -123,7 +155,8 @@ def index():
 
             <script>
                 const statusBox = document.getElementById('status-box');
-                const metaBox = document.getElementById('meta-box');
+                const productName = document.getElementById('product-name');
+                const productUrl = document.getElementById('product-url');
                 const historyChat = document.getElementById('history-chat');
 
                 function getPriceTone(price, previousPrice) {
@@ -189,7 +222,14 @@ def index():
                     const data = await response.json();
                     const priceText = data.last_price !== null ? '$' + data.last_price : 'No price yet';
                     statusBox.textContent = data.status + ' | Current price: ' + priceText;
-                    metaBox.textContent = data.url ? 'URL: ' + data.url + ' | Check interval: ' + data.interval + 's' : 'No active monitor';
+
+                    if (data.product_name) {
+                        productName.textContent = data.product_name;
+                    } else {
+                        productName.textContent = 'No product selected';
+                    }
+
+                    productUrl.textContent = data.url || 'URL will appear here';
 
                     const activeDays = document.querySelector('.history-button.active')?.dataset.days || '30';
                     const historyList = data.history_by_days && data.history_by_days[activeDays] ? data.history_by_days[activeDays] : [];
@@ -234,6 +274,7 @@ def status():
 
     return jsonify({
         "url": selected_url,
+        "product_name": MONITOR_STATE.get("product_name", ""),
         "interval": MONITOR_STATE["interval"],
         "running": MONITOR_STATE["running"],
         "status": MONITOR_STATE["status"],
@@ -262,6 +303,7 @@ def start_monitoring():
     MONITOR_STATE["status"] = "Monitoring started"
     MONITOR_STATE["running"] = True
     MONITOR_STATE["history"] = load_history()
+    MONITOR_STATE["product_name"] = "Amazon product"
 
     thread = threading.Thread(target=run_monitor_loop, args=(url, MONITOR_STATE["interval"]), daemon=True)
     thread.start()
@@ -275,7 +317,12 @@ def run_monitor_loop(url: str, interval_seconds: int) -> None:
 
     while MONITOR_STATE["running"] and MONITOR_STATE["url"] == url:
         try:
-            price = fetch_price(url)
+            page_html = requests.get(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9",
+            }, timeout=20).text
+            MONITOR_STATE["product_name"] = extract_product_name(page_html)
+            price = extract_price(page_html)
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
             MONITOR_STATE["last_checked"] = timestamp
             if price is None:
