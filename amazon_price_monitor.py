@@ -102,13 +102,81 @@ def index():
 
                 <div class="status" id="status-box">Idle. Paste a URL and start monitoring.</div>
                 <div class="tiny" id="meta-box"></div>
-                <div class="tiny" id="history-box"></div>
+
+                <div style="margin-top: 18px;">
+                    <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                        <button type="button" class="history-button" data-days="30" style="width: auto;">Last 30 days</button>
+                        <button type="button" class="history-button" data-days="60" style="width: auto;">Last 60 days</button>
+                        <button type="button" class="history-button" data-days="90" style="width: auto;">Last 90 days</button>
+                    </div>
+                    <div id="history-chat" style="background: #fff; border: 1px solid #ddd; border-radius: 8px; min-height: 180px; padding: 12px; display: flex; flex-direction: column; gap: 10px;">
+                        <div style="color: #666;">No price history yet.</div>
+                    </div>
+                </div>
             </div>
 
             <script>
                 const statusBox = document.getElementById('status-box');
                 const metaBox = document.getElementById('meta-box');
-                const historyBox = document.getElementById('history-box');
+                const historyChat = document.getElementById('history-chat');
+
+                function getPriceTone(price, previousPrice) {
+                    if (previousPrice === undefined || previousPrice === null) {
+                        return { tone: 'neutral', label: 'Current price', color: '#2d3748' };
+                    }
+                    if (Number(price) < Number(previousPrice)) {
+                        return { tone: 'drop', label: 'Price dropped', color: '#0f9d58' };
+                    }
+                    if (Number(price) > Number(previousPrice)) {
+                        return { tone: 'rise', label: 'Price increased', color: '#d93025' };
+                    }
+                    return { tone: 'same', label: 'No change', color: '#5f6368' };
+                }
+
+                function renderHistory(historyList, days) {
+                    historyChat.innerHTML = '';
+                    if (!historyList || historyList.length === 0) {
+                        historyChat.innerHTML = '<div style="color: #666;">No price history for the last ' + days + ' days.</div>';
+                        return;
+                    }
+
+                    let previousPrice = null;
+                    historyList.forEach(item => {
+                        const d = new Date(item.checked_at.replace(' ', 'T'));
+                        const price = Number(item.price);
+                        const { label, color } = getPriceTone(price, previousPrice);
+                        previousPrice = price;
+
+                        const container = document.createElement('div');
+                        container.style.display = 'flex';
+                        container.style.justifyContent = 'flex-end';
+
+                        const bubble = document.createElement('div');
+                        bubble.style.maxWidth = '85%';
+                        bubble.style.padding = '10px 14px';
+                        bubble.style.borderRadius = '12px';
+                        bubble.style.background = label === 'Price dropped' ? '#e6f8ee' : label === 'Price increased' ? '#fdecea' : '#f1f3f4';
+                        bubble.style.border = '1px solid ' + (label === 'Price dropped' ? '#bfe8d0' : label === 'Price increased' ? '#f4c7c3' : '#e0e0e0');
+                        bubble.style.color = color;
+                        bubble.style.boxShadow = '0 1px 2px rgba(0,0,0,0.06)';
+
+                        const mainLine = document.createElement('div');
+                        mainLine.textContent = label + ': $' + item.price;
+                        mainLine.style.fontWeight = '600';
+
+                        const timeLine = document.createElement('div');
+                        timeLine.textContent = d.toLocaleString();
+                        timeLine.style.fontSize = '11px';
+                        timeLine.style.textAlign = 'right';
+                        timeLine.style.marginTop = '6px';
+                        timeLine.style.opacity = '0.85';
+
+                        bubble.appendChild(mainLine);
+                        bubble.appendChild(timeLine);
+                        container.appendChild(bubble);
+                        historyChat.appendChild(container);
+                    });
+                }
 
                 async function loadStatus() {
                     const response = await fetch('/status');
@@ -116,7 +184,10 @@ def index():
                     const priceText = data.last_price !== null ? '$' + data.last_price : 'No price yet';
                     statusBox.textContent = data.status + ' | Current price: ' + priceText;
                     metaBox.textContent = data.url ? 'URL: ' + data.url + ' | Check interval: ' + data.interval + 's' : 'No active monitor';
-                    historyBox.textContent = 'History: 30d=' + data.history_30_count + ', 60d=' + data.history_60_count + ', 90d=' + data.history_90_count;
+
+                    const activeDays = document.querySelector('.history-button.active')?.dataset.days || '30';
+                    const historyList = data.history_by_days && data.history_by_days[activeDays] ? data.history_by_days[activeDays] : [];
+                    renderHistory(historyList, Number(activeDays));
                 }
 
                 document.getElementById('monitor-form').addEventListener('submit', async (event) => {
@@ -131,6 +202,15 @@ def index():
                     loadStatus();
                 });
 
+                document.querySelectorAll('.history-button').forEach(button => {
+                    button.addEventListener('click', () => {
+                        document.querySelectorAll('.history-button').forEach(b => b.classList.remove('active'));
+                        button.classList.add('active');
+                        loadStatus();
+                    });
+                });
+
+                document.querySelector('.history-button[data-days="30"]').classList.add('active');
                 setInterval(loadStatus, 5000);
                 loadStatus();
             </script>
@@ -153,6 +233,11 @@ def status():
         "history_30_count": len(get_history_for_days(history, 30)),
         "history_60_count": len(get_history_for_days(history, 60)),
         "history_90_count": len(get_history_for_days(history, 90)),
+        "history_by_days": {
+            "30": get_history_for_days(history, 30),
+            "60": get_history_for_days(history, 60),
+            "90": get_history_for_days(history, 90),
+        },
     })
 
 
