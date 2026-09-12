@@ -1,8 +1,11 @@
 import argparse
+import json
 import threading
 import time
+from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from pathlib import Path
+from typing import Any, Optional
 
 import requests
 from bs4 import BeautifulSoup
@@ -10,6 +13,7 @@ from flask import Flask, jsonify, render_template_string, request
 
 
 app = Flask(__name__)
+HISTORY_FILE = Path(__file__).with_name("price_history.json")
 MONITOR_STATE = {
     "url": "",
     "interval": 300,
@@ -17,7 +21,46 @@ MONITOR_STATE = {
     "status": "idle",
     "last_price": None,
     "last_checked": None,
+    "history": [],
 }
+
+
+def load_history() -> list[dict[str, Any]]:
+    if not HISTORY_FILE.exists():
+        return []
+    try:
+        with HISTORY_FILE.open("r", encoding="utf-8") as file_handle:
+            data = json.load(file_handle)
+            return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def save_history(history: list[dict[str, Any]]) -> None:
+    try:
+        with HISTORY_FILE.open("w", encoding="utf-8") as file_handle:
+            json.dump(history, file_handle, indent=2)
+    except OSError:
+        pass
+
+
+def get_history_for_days(history: list[dict[str, Any]], days: int) -> list[dict[str, Any]]:
+    if days <= 0:
+        return []
+
+    cutoff = datetime.now() - timedelta(days=days)
+    recent = []
+    for item in history:
+        checked_at = item.get("checked_at")
+        if not checked_at:
+            continue
+        try:
+            dt = datetime.strptime(str(checked_at), "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            continue
+        if dt >= cutoff:
+            recent.append(item)
+    return recent
 
 
 @app.get("/health")
@@ -59,11 +102,13 @@ def index():
 
                 <div class="status" id="status-box">Idle. Paste a URL and start monitoring.</div>
                 <div class="tiny" id="meta-box"></div>
+                <div class="tiny" id="history-box"></div>
             </div>
 
             <script>
                 const statusBox = document.getElementById('status-box');
                 const metaBox = document.getElementById('meta-box');
+                const historyBox = document.getElementById('history-box');
 
                 async function loadStatus() {
                     const response = await fetch('/status');
@@ -71,6 +116,7 @@ def index():
                     const priceText = data.last_price !== null ? '$' + data.last_price : 'No price yet';
                     statusBox.textContent = data.status + ' | Current price: ' + priceText;
                     metaBox.textContent = data.url ? 'URL: ' + data.url + ' | Check interval: ' + data.interval + 's' : 'No active monitor';
+                    historyBox.textContent = 'History: 30d=' + data.history_30_count + ', 60d=' + data.history_60_count + ', 90d=' + data.history_90_count;
                 }
 
                 document.getElementById('monitor-form').addEventListener('submit', async (event) => {
@@ -96,6 +142,7 @@ def index():
 
 @app.get("/status")
 def status():
+    history = MONITOR_STATE.get("history", [])
     return jsonify({
         "url": MONITOR_STATE["url"],
         "interval": MONITOR_STATE["interval"],
@@ -103,6 +150,9 @@ def status():
         "status": MONITOR_STATE["status"],
         "last_price": str(MONITOR_STATE["last_price"]) if MONITOR_STATE["last_price"] is not None else None,
         "last_checked": MONITOR_STATE["last_checked"],
+        "history_30_count": len(get_history_for_days(history, 30)),
+        "history_60_count": len(get_history_for_days(history, 60)),
+        "history_90_count": len(get_history_for_days(history, 90)),
     })
 
 
@@ -117,6 +167,7 @@ def start_monitoring():
     MONITOR_STATE["interval"] = max(interval, 30)
     MONITOR_STATE["status"] = "Monitoring started"
     MONITOR_STATE["running"] = True
+    MONITOR_STATE["history"] = load_history()
 
     thread = threading.Thread(target=run_monitor_loop, args=(url, MONITOR_STATE["interval"]), daemon=True)
     thread.start()
@@ -125,10 +176,14 @@ def start_monitoring():
 
 def run_monitor_loop(url: str, interval_seconds: int) -> None:
     last_price: Optional[Decimal] = None
+    history = load_history()
+    MONITOR_STATE["history"] = history
+
     while MONITOR_STATE["running"] and MONITOR_STATE["url"] == url:
         try:
             price = fetch_price(url)
-            MONITOR_STATE["last_checked"] = time.strftime("%Y-%m-%d %H:%M:%S")
+            timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            MONITOR_STATE["last_checked"] = timestamp
             if price is None:
                 MONITOR_STATE["status"] = "Price not found"
             else:
@@ -140,6 +195,10 @@ def run_monitor_loop(url: str, interval_seconds: int) -> None:
                     MONITOR_STATE["status"] = f"Current price: ${price}"
                 last_price = price
                 MONITOR_STATE["last_price"] = price
+                history.append({"checked_at": timestamp, "price": str(price)})
+                history = history[-2000:]
+                MONITOR_STATE["history"] = history
+                save_history(history)
         except Exception as exc:  # pragma: no cover - runtime path
             MONITOR_STATE["status"] = f"Error: {exc}"
             MONITOR_STATE["last_checked"] = time.strftime("%Y-%m-%d %H:%M:%S")

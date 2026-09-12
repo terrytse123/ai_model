@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from amazon_price_monitor import app, extract_price
@@ -35,3 +36,21 @@ def test_web_app_check_route():
     response = client.get('/health')
     assert response.status_code == 200
     assert response.get_json()['status'] == 'ok'
+
+
+def test_price_history_filters_by_days():
+    from amazon_price_monitor import get_history_for_days
+
+    now = datetime.now()
+    history = [
+        {"checked_at": (now - timedelta(days=100)).strftime("%Y-%m-%d %H:%M:%S"), "price": "10.00"},
+        {"checked_at": (now - timedelta(days=40)).strftime("%Y-%m-%d %H:%M:%S"), "price": "15.00"},
+        {"checked_at": (now - timedelta(days=10)).strftime("%Y-%m-%d %H:%M:%S"), "price": "20.00"},
+    ]
+    recent_30 = get_history_for_days(history, 30)
+    recent_60 = get_history_for_days(history, 60)
+    recent_90 = get_history_for_days(history, 90)
+
+    assert len(recent_30) == 1
+    assert len(recent_60) == 2
+    assert len(recent_90) == 2
