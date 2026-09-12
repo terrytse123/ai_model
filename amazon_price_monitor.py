@@ -351,33 +351,81 @@ def extract_price(html: str) -> Optional[Decimal]:
     """Extract the product price from an Amazon product HTML page."""
     soup = BeautifulSoup(html, "html.parser")
 
-    meta_amount = soup.select_one('meta[property="og:price:amount"]')
-    if meta_amount and meta_amount.get("content"):
+    def parse_decimal_from_text(value: str) -> Optional[Decimal]:
+        text = (value or "").strip()
+        if not text:
+            return None
+        cleaned = text.replace("$", "").replace(",", "").replace(" ", "").strip()
+        if not cleaned:
+            return None
         try:
-            return Decimal(meta_amount["content"].strip())
+            return Decimal(cleaned)
         except InvalidOperation:
-            pass
+            return None
 
     for selector in [
+        ".a-price.priceToPay",
+        ".priceToPay",
         "#priceblock_ourprice",
         "#price_inside_buybox",
         "#corePriceDisplay_desktop_feature_div .a-price .a-offscreen",
         "#corePrice_feature_div .a-price .a-offscreen",
         ".a-price .a-offscreen",
-        ".a-price-whole",
+        "[data-price]",
+        "[data-asin-price]",
     ]:
         node = soup.select_one(selector)
         if not node:
             continue
 
+        whole = node.select_one(".a-price-whole")
+        fraction = node.select_one(".a-price-fraction")
+        if whole or fraction:
+            whole_text = whole.get_text("", strip=True) if whole else "0"
+            fraction_text = fraction.get_text("", strip=True) if fraction else "0"
+            candidates = [f"{whole_text}.{fraction_text}", f"{whole_text}{fraction_text}"]
+            for candidate in candidates:
+                value = parse_decimal_from_text(candidate)
+                if value is not None:
+                    return value
+
         text = node.get_text(" ", strip=True)
-        cleaned = text.replace("$", "").replace(",", "").strip()
-        if not cleaned:
+        if not text:
+            text = node.get("content") or node.get("data-price") or node.get("value") or ""
+        value = parse_decimal_from_text(text)
+        if value is not None:
+            return value
+
+    meta_amount = soup.select_one('meta[property="og:price:amount"]')
+    if meta_amount and meta_amount.get("content"):
+        value = parse_decimal_from_text(meta_amount["content"])
+        if value is not None:
+            return value
+
+    patterns = [
+        r'"price"\s*:\s*"([0-9]+(?:\.[0-9]+)?)"',
+        r'"lowPrice"\s*:\s*"([0-9]+(?:\.[0-9]+)?)"',
+        r'"displayPrice"\s*:\s*"\$?\s*([0-9]+(?:\.[0-9]+)?)"',
+        r'\$\s*([0-9]+(?:\.[0-9]+)?)',
+        r'Price\s*[:=]\s*\$?\s*([0-9]+(?:\.[0-9]+)?)',
+    ]
+    for pattern in patterns:
+        import re
+        match = re.search(pattern, html, flags=re.IGNORECASE)
+        if match:
+            value = parse_decimal_from_text(match.group(1).strip())
+            if value is not None:
+                return value
+
+    for text in [node.get_text(" ", strip=True) for node in soup.find_all()]:
+        if not text:
             continue
-        try:
-            return Decimal(cleaned)
-        except InvalidOperation:
-            continue
+        import re
+        match = re.search(r'\$\s*([0-9]+(?:\.[0-9]+)?)', text)
+        if match:
+            value = parse_decimal_from_text(match.group(1).strip())
+            if value is not None:
+                return value
 
     return None
 
